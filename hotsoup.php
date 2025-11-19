@@ -75,12 +75,6 @@ require_once plugin_dir_path(__FILE__) . 'includes/admin/authors_series_manager.
 require_once plugin_dir_path(__FILE__) . 'includes/authors_series_display.php';
 // Database repair utilities
 require_once plugin_dir_path(__FILE__) . 'includes/admin/database_repair.php';
-// Avatar customization system
-require_once plugin_dir_path(__FILE__) . 'includes/avatar_generator.php';
-require_once plugin_dir_path(__FILE__) . 'includes/avatar_profile.php';
-require_once plugin_dir_path(__FILE__) . 'includes/admin/avatar_manager.php';
-require_once plugin_dir_path(__FILE__) . 'includes/admin/avatar_item_seeder.php';
-require_once plugin_dir_path(__FILE__) . 'includes/api/avatar.php';
 
 register_activation_hook(__FILE__, 'hs_gid_activate');
 register_activation_hook( __FILE__, 'hs_achievements_create_table' );
@@ -93,7 +87,6 @@ register_activation_hook(__FILE__, 'hs_book_tags_create_table');
 register_activation_hook(__FILE__, 'hs_book_notes_activate');
 register_activation_hook(__FILE__, 'hs_authors_series_activate');
 register_activation_hook(__FILE__, 'hs_flush_permalinks_on_activation');
-register_activation_hook(__FILE__, 'hs_avatar_items_create_table');
 
 // On activation, set up the reviews table
 function hs_reviews_activate()
