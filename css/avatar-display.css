@@ -1,0 +1,53 @@
+/**
+ * Avatar Display Styles
+ * For displaying avatars on profiles and throughout the site
+ */
+
+.hs-profile-avatar {
+    margin: 15px 0;
+}
+
+.hs-profile-avatar svg {
+    max-width: 150px;
+    height: auto;
+    border-radius: 10px;
+    background: #f5f5f5;
+    padding: 10px;
+    border: 2px solid #ddd;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));
+}
+
+/* Avatar in activity feed */
+.activity-avatar .hs-user-avatar svg {
+    width: 50px;
+    height: 50px;
+    border-radius: 5px;
+}
+
+/* Avatar in member lists */
+.item-avatar .hs-user-avatar svg {
+    width: 60px;
+    height: 60px;
+    border-radius: 8px;
+}
+
+/* Small avatar (comments, etc.) */
+.hs-user-avatar-small svg {
+    width: 32px;
+    height: 32px;
+    border-radius: 4px;
+}
+
+/* Medium avatar */
+.hs-user-avatar-medium svg {
+    width: 80px;
+    height: 80px;
+    border-radius: 8px;
+}
+
+/* Large avatar (profile header) */
+.hs-user-avatar-large svg {
+    width: 150px;
+    height: 150px;
+    border-radius: 12px;
+}
