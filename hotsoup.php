@@ -79,6 +79,7 @@ require_once plugin_dir_path(__FILE__) . 'includes/admin/database_repair.php';
 require_once plugin_dir_path(__FILE__) . 'includes/avatar_generator.php';
 require_once plugin_dir_path(__FILE__) . 'includes/avatar_profile.php';
 require_once plugin_dir_path(__FILE__) . 'includes/admin/avatar_manager.php';
+require_once plugin_dir_path(__FILE__) . 'includes/admin/avatar_item_seeder.php';
 require_once plugin_dir_path(__FILE__) . 'includes/api/avatar.php';
 
 register_activation_hook(__FILE__, 'hs_gid_activate');
