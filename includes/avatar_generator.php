@@ -1,6 +1,6 @@
 <?php
 /**
- * Avatar Generator - Human Fall Flat Style
+ * Avatar Generator - Human Fall Flat Style (Clean & Smooth)
  * Generates cute, blob-like 2D SVG avatars
  */
 
@@ -10,14 +10,10 @@ if (!defined('ABSPATH')) {
 
 /**
  * Generate an SVG avatar for a user
- *
- * @param int $user_id The user ID
- * @param int $size The size in pixels (default: 200)
- * @return string The SVG markup
  */
 function hs_generate_user_avatar($user_id, $size = 200) {
     // Get user's avatar customization
-    $body_color = get_user_meta($user_id, 'hs_avatar_body_color', true) ?: '#F5E6D3';
+    $body_color = get_user_meta($user_id, 'hs_avatar_body_color', true) ?: '#FFE5CC';
     $gender = get_user_meta($user_id, 'hs_avatar_gender', true) ?: 'male';
     $shirt_color = get_user_meta($user_id, 'hs_avatar_shirt_color', true) ?: '#4A90E2';
     $pants_color = get_user_meta($user_id, 'hs_avatar_pants_color', true) ?: '#2C3E50';
@@ -32,15 +28,12 @@ function hs_generate_user_avatar($user_id, $size = 200) {
     // Get avatar items from database
     $items_by_category = hs_get_avatar_items_by_category($equipped_items);
 
-    // Build SVG with gradients for depth
+    // Build SVG
     $svg = sprintf(
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="%d" height="%d">',
         $size,
         $size
     );
-
-    // Add gradient definitions for depth/shading
-    $svg .= hs_generate_avatar_gradients($body_color, $shirt_color, $pants_color);
 
     // Background
     if (isset($items_by_category['background'])) {
@@ -49,40 +42,26 @@ function hs_generate_user_avatar($user_id, $size = 200) {
         $svg .= '<rect width="100" height="100" fill="#E8F4F8"/>';
     }
 
-    // Shadow under character
-    $svg .= '<ellipse cx="50" cy="92" rx="18" ry="3" fill="#000000" opacity="0.15"/>';
+    // Simple shadow
+    $svg .= '<ellipse cx="50" cy="93" rx="16" ry="2.5" fill="#000000" opacity="0.1"/>';
 
-    // Body parts in proper order (back to front)
+    // Body parts
+    $svg .= hs_generate_avatar_body($body_color, $shirt_color, $pants_color, $gender);
 
-    // Back arm
-    $svg .= hs_generate_avatar_arm($body_color, 'left');
-
-    // Legs
-    $svg .= hs_generate_avatar_legs($body_color, $pants_color, $gender);
-
-    // Torso
-    $svg .= hs_generate_avatar_torso($body_color, $shirt_color, $gender);
-
-    // Pants pattern (if equipped)
+    // Pants pattern
     if (isset($items_by_category['pants_pattern'])) {
         $svg .= $items_by_category['pants_pattern'];
     }
 
-    // Shirt pattern (if equipped)
+    // Shirt pattern
     if (isset($items_by_category['shirt_pattern'])) {
         $svg .= $items_by_category['shirt_pattern'];
     }
 
-    // Front arm
-    $svg .= hs_generate_avatar_arm($body_color, 'right');
-
-    // Head
-    $svg .= hs_generate_avatar_head($body_color);
-
-    // Face (simple features)
+    // Face
     $svg .= hs_generate_avatar_face();
 
-    // Accessories (glasses, etc.)
+    // Accessories
     if (isset($items_by_category['accessory'])) {
         $svg .= $items_by_category['accessory'];
     }
@@ -121,131 +100,43 @@ function hs_get_avatar_items_by_category($item_ids) {
 }
 
 /**
- * Generate gradients for shading/depth
+ * Generate complete avatar body
  */
-function hs_generate_avatar_gradients($body_color, $shirt_color, $pants_color) {
-    $svg = '<defs>';
+function hs_generate_avatar_body($body_color, $shirt_color, $pants_color, $gender) {
+    $svg = '<g id="avatar">';
 
-    // Body gradient (subtle shading)
-    $svg .= '<radialGradient id="bodyGrad">';
-    $svg .= '<stop offset="0%" style="stop-color:' . esc_attr($body_color) . ';stop-opacity:1" />';
-    $svg .= '<stop offset="100%" style="stop-color:' . esc_attr(hs_darken_color($body_color, 15)) . ';stop-opacity:1" />';
-    $svg .= '</radialGradient>';
+    // Back arm
+    $svg .= '<ellipse cx="32" cy="56" rx="5" ry="11" fill="' . esc_attr($body_color) . '" transform="rotate(-25 32 56)"/>';
+    $svg .= '<ellipse cx="28" cy="67" rx="4.5" ry="9" fill="' . esc_attr($body_color) . '" transform="rotate(-15 28 67)"/>';
+    $svg .= '<ellipse cx="26" cy="76" rx="5.5" ry="6.5" fill="' . esc_attr($body_color) . '"/>';
 
-    // Shirt gradient
-    $svg .= '<radialGradient id="shirtGrad">';
-    $svg .= '<stop offset="0%" style="stop-color:' . esc_attr($shirt_color) . ';stop-opacity:1" />';
-    $svg .= '<stop offset="100%" style="stop-color:' . esc_attr(hs_darken_color($shirt_color, 20)) . ';stop-opacity:1" />';
-    $svg .= '</radialGradient>';
+    // Legs with pants
+    $svg .= '<ellipse cx="43" cy="78" rx="6.5" ry="13" fill="' . esc_attr($pants_color) . '"/>';
+    $svg .= '<ellipse cx="57" cy="78" rx="6.5" ry="13" fill="' . esc_attr($pants_color) . '"/>';
 
-    // Pants gradient
-    $svg .= '<radialGradient id="pantsGrad">';
-    $svg .= '<stop offset="0%" style="stop-color:' . esc_attr($pants_color) . ';stop-opacity:1" />';
-    $svg .= '<stop offset="100%" style="stop-color:' . esc_attr(hs_darken_color($pants_color, 20)) . ';stop-opacity:1" />';
-    $svg .= '</radialGradient>';
+    // Feet
+    $svg .= '<ellipse cx="42" cy="91" rx="6" ry="5" fill="' . esc_attr($body_color) . '"/>';
+    $svg .= '<ellipse cx="58" cy="91" rx="6" ry="5" fill="' . esc_attr($body_color) . '"/>';
 
-    $svg .= '</defs>';
-
-    return $svg;
-}
-
-/**
- * Darken a hex color by a percentage
- */
-function hs_darken_color($hex, $percent) {
-    $hex = str_replace('#', '', $hex);
-
-    if (strlen($hex) == 3) {
-        $hex = $hex[0] . $hex[0] . $hex[1] . $hex[1] . $hex[2] . $hex[2];
-    }
-
-    $r = hexdec(substr($hex, 0, 2));
-    $g = hexdec(substr($hex, 2, 2));
-    $b = hexdec(substr($hex, 4, 2));
-
-    $r = max(0, min(255, $r - ($r * $percent / 100)));
-    $g = max(0, min(255, $g - ($g * $percent / 100)));
-    $b = max(0, min(255, $b - ($b * $percent / 100)));
-
-    return '#' . str_pad(dechex($r), 2, '0', STR_PAD_LEFT)
-               . str_pad(dechex($g), 2, '0', STR_PAD_LEFT)
-               . str_pad(dechex($b), 2, '0', STR_PAD_LEFT);
-}
-
-/**
- * Generate the avatar head (large, rounded, blob-like)
- */
-function hs_generate_avatar_head($color) {
-    $svg = '<g id="avatar-head">';
-
-    // Main head - large and round like Human Fall Flat
-    $svg .= '<ellipse cx="50" cy="30" rx="16" ry="18" fill="url(#bodyGrad)"/>';
-
-    // Subtle highlight on top of head for depth
-    $svg .= '<ellipse cx="50" cy="25" rx="12" ry="8" fill="#FFFFFF" opacity="0.2"/>';
-
-    $svg .= '</g>';
-
-    return $svg;
-}
-
-/**
- * Generate the avatar torso (blob-like body)
- */
-function hs_generate_avatar_torso($body_color, $shirt_color, $gender) {
-    $svg = '<g id="avatar-torso">';
-
-    // Main body blob - rounded and soft
+    // Torso with shirt
     if ($gender === 'female') {
-        // Female: slightly narrower waist, subtle chest
-        $svg .= '<path d="M 35 48 Q 33 55 35 62 L 35 68 Q 35 70 37 70 L 63 70 Q 65 70 65 68 L 65 62 Q 67 55 65 48 Q 63 46 60 46 L 40 46 Q 37 46 35 48" fill="url(#shirtGrad)"/>';
-
-        // Subtle chest indication
-        $svg .= '<ellipse cx="44" cy="52" rx="5" ry="6" fill="' . esc_attr($shirt_color) . '" opacity="0.3"/>';
-        $svg .= '<ellipse cx="56" cy="52" rx="5" ry="6" fill="' . esc_attr($shirt_color) . '" opacity="0.3"/>';
+        $svg .= '<ellipse cx="50" cy="58" rx="15" ry="14" fill="' . esc_attr($shirt_color) . '"/>';
+        $svg .= '<ellipse cx="45" cy="54" rx="5" ry="6" fill="' . esc_attr($shirt_color) . '" opacity="0.4"/>';
+        $svg .= '<ellipse cx="55" cy="54" rx="5" ry="6" fill="' . esc_attr($shirt_color) . '" opacity="0.4"/>';
     } else {
-        // Male: more rectangular blob
-        $svg .= '<path d="M 36 46 Q 34 48 34 52 L 34 68 Q 34 70 36 70 L 64 70 Q 66 70 66 68 L 66 52 Q 66 48 64 46 Z" fill="url(#shirtGrad)"/>';
+        $svg .= '<ellipse cx="50" cy="58" rx="16" ry="15" fill="' . esc_attr($shirt_color) . '"/>';
     }
 
-    // Neck connection (blob connection)
-    $svg .= '<ellipse cx="50" cy="45" rx="8" ry="6" fill="url(#bodyGrad)"/>';
+    // Front arm
+    $svg .= '<ellipse cx="68" cy="56" rx="5" ry="11" fill="' . esc_attr($body_color) . '" transform="rotate(25 68 56)"/>';
+    $svg .= '<ellipse cx="72" cy="67" rx="4.5" ry="9" fill="' . esc_attr($body_color) . '" transform="rotate(15 72 67)"/>';
+    $svg .= '<ellipse cx="74" cy="76" rx="5.5" ry="6.5" fill="' . esc_attr($body_color) . '"/>';
 
-    // Highlight on torso for depth
-    $svg .= '<ellipse cx="50" cy="52" rx="10" ry="8" fill="#FFFFFF" opacity="0.15"/>';
+    // Neck
+    $svg .= '<ellipse cx="50" cy="46" rx="7" ry="5" fill="' . esc_attr($body_color) . '"/>';
 
-    $svg .= '</g>';
-
-    return $svg;
-}
-
-/**
- * Generate avatar arm (stubby, blob-like)
- */
-function hs_generate_avatar_arm($color, $side) {
-    $svg = '<g id="avatar-arm-' . $side . '">';
-
-    if ($side === 'left') {
-        // Back arm (left side)
-        // Upper arm
-        $svg .= '<ellipse cx="32" cy="55" rx="5" ry="10" fill="url(#bodyGrad)" transform="rotate(-20 32 55)"/>';
-        // Lower arm
-        $svg .= '<ellipse cx="28" cy="65" rx="4" ry="8" fill="url(#bodyGrad)" transform="rotate(-10 28 65)"/>';
-        // Hand (round blob)
-        $svg .= '<ellipse cx="27" cy="73" rx="5" ry="6" fill="url(#bodyGrad)"/>';
-        // Highlight on hand
-        $svg .= '<ellipse cx="27" cy="71" rx="3" ry="3" fill="#FFFFFF" opacity="0.25"/>';
-    } else {
-        // Front arm (right side)
-        // Upper arm
-        $svg .= '<ellipse cx="68" cy="55" rx="5" ry="10" fill="url(#bodyGrad)" transform="rotate(20 68 55)"/>';
-        // Lower arm
-        $svg .= '<ellipse cx="72" cy="65" rx="4" ry="8" fill="url(#bodyGrad)" transform="rotate(10 72 65)"/>';
-        // Hand (round blob)
-        $svg .= '<ellipse cx="73" cy="73" rx="5" ry="6" fill="url(#bodyGrad)"/>';
-        // Highlight on hand
-        $svg .= '<ellipse cx="73" cy="71" rx="3" ry="3" fill="#FFFFFF" opacity="0.25"/>';
-    }
+    // Head
+    $svg .= '<ellipse cx="50" cy="32" rx="15" ry="17" fill="' . esc_attr($body_color) . '"/>';
 
     $svg .= '</g>';
 
@@ -253,52 +144,21 @@ function hs_generate_avatar_arm($color, $side) {
 }
 
 /**
- * Generate avatar legs (stubby, blob-like)
- */
-function hs_generate_avatar_legs($body_color, $pants_color, $gender) {
-    $svg = '<g id="avatar-legs">';
-
-    // Pants on legs
-    // Left leg
-    $svg .= '<ellipse cx="43" cy="80" rx="6" ry="14" fill="url(#pantsGrad)"/>';
-
-    // Right leg
-    $svg .= '<ellipse cx="57" cy="80" rx="6" ry="14" fill="url(#pantsGrad)"/>';
-
-    // Highlights on pants
-    $svg .= '<ellipse cx="43" cy="75" rx="4" ry="6" fill="#FFFFFF" opacity="0.1"/>';
-    $svg .= '<ellipse cx="57" cy="75" rx="4" ry="6" fill="#FFFFFF" opacity="0.1"/>';
-
-    // Feet (round blobs)
-    // Left foot
-    $svg .= '<ellipse cx="42" cy="90" rx="6" ry="5" fill="url(#bodyGrad)"/>';
-    $svg .= '<ellipse cx="42" cy="89" rx="4" ry="3" fill="#FFFFFF" opacity="0.2"/>';
-
-    // Right foot
-    $svg .= '<ellipse cx="58" cy="90" rx="6" ry="5" fill="url(#bodyGrad)"/>';
-    $svg .= '<ellipse cx="58" cy="89" rx="4" ry="3" fill="#FFFFFF" opacity="0.2"/>';
-
-    $svg .= '</g>';
-
-    return $svg;
-}
-
-/**
- * Generate the avatar face (simple, cute, Human Fall Flat style)
+ * Generate face
  */
 function hs_generate_avatar_face() {
-    $svg = '<g id="avatar-face">';
+    $svg = '<g id="face">';
 
-    // Eyes - simple dots
-    $svg .= '<circle cx="44" cy="28" r="2.5" fill="#000000"/>';
-    $svg .= '<circle cx="56" cy="28" r="2.5" fill="#000000"/>';
+    // Eyes
+    $svg .= '<circle cx="44" cy="30" r="2.5" fill="#000000"/>';
+    $svg .= '<circle cx="56" cy="30" r="2.5" fill="#000000"/>';
 
-    // Eye highlights for life
-    $svg .= '<circle cx="44.8" cy="27.2" r="1" fill="#FFFFFF" opacity="0.6"/>';
-    $svg .= '<circle cx="56.8" cy="27.2" r="1" fill="#FFFFFF" opacity="0.6"/>';
+    // Eye shine
+    $svg .= '<circle cx="45" cy="29.5" r="1" fill="#FFFFFF" opacity="0.7"/>';
+    $svg .= '<circle cx="57" cy="29.5" r="1" fill="#FFFFFF" opacity="0.7"/>';
 
-    // Simple smile curve
-    $svg .= '<path d="M 42 34 Q 50 37 58 34" stroke="#000000" stroke-width="1.5" fill="none" stroke-linecap="round"/>';
+    // Smile
+    $svg .= '<path d="M 43 37 Q 50 39.5 57 37" stroke="#000000" stroke-width="1.5" fill="none" stroke-linecap="round"/>';
 
     $svg .= '</g>';
 
@@ -310,7 +170,7 @@ function hs_generate_avatar_face() {
  */
 function hs_get_default_avatar_customization() {
     return [
-        'body_color' => '#F5E6D3', // Softer beige/cream color like Human Fall Flat
+        'body_color' => '#FFE5CC', // Light peachy skin tone
         'gender' => 'male',
         'shirt_color' => '#4A90E2',
         'pants_color' => '#2C3E50',
