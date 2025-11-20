@@ -278,6 +278,183 @@ function gread_register_rest_routes() {
         )
     ));
 
+ // --- Inaccuracy Reporter Routes ---
+    register_rest_route('gread/v1', '/books/(?P<book_id>\d+)/report', array(
+        'methods' => 'POST',
+        'callback' => 'gread_api_submit_inaccuracy_report',
+        'permission_callback' => 'gread_check_user_permission',
+        'args' => array(
+            'book_id' => array(
+                'required' => true,
+                'validate_callback' => function($param) {
+                    return is_numeric($param);
+                }
+            ),
+            'report_text' => array(
+                'required' => true,
+                'sanitize_callback' => 'sanitize_textarea_field',
+                'validate_callback' => function($param) {
+                    return !empty(trim($param));
+                }
+            )
+        )
+    ));
+
+    register_rest_route('gread/v1', '/user/reports', array(
+        'methods' => 'GET',
+        'callback' => 'gread_api_get_user_reports',
+        'permission_callback' => 'gread_check_user_permission',
+        'args' => array(
+            'status' => array(
+                'required' => false,
+                'default' => 'all',
+                'enum' => array('all', 'pending', 'approved', 'rejected')
+            )
+        )
+    ));
+
+    // --- Notes System Routes ---
+    register_rest_route('gread/v1', '/books/(?P<book_id>\d+)/notes', array(
+        array(
+            'methods' => 'GET',
+            'callback' => 'gread_api_get_book_notes',
+            'permission_callback' => '__return_true',
+            'args' => array(
+                'book_id' => array(
+                    'required' => true,
+                    'validate_callback' => function($param) {
+                        return is_numeric($param);
+                    }
+                ),
+                'type' => array(
+                    'required' => false,
+                    'default' => 'public',
+                    'enum' => array('public', 'user', 'all')
+                )
+            )
+        ),
+        array(
+            'methods' => 'POST',
+            'callback' => 'gread_api_create_note',
+            'permission_callback' => 'gread_check_user_permission',
+            'args' => array(
+                'book_id' => array(
+                    'required' => true,
+                    'validate_callback' => function($param) {
+                        return is_numeric($param);
+                    }
+                ),
+                'note_text' => array(
+                    'required' => true,
+                    'sanitize_callback' => 'sanitize_textarea_field'
+                ),
+                'page_number' => array(
+                    'required' => false,
+                    'default' => null
+                ),
+                'is_public' => array(
+                    'required' => false,
+                    'default' => false
+                )
+            )
+        )
+    ));
+
+    register_rest_route('gread/v1', '/notes/(?P<note_id>\d+)', array(
+        array(
+            'methods' => 'GET',
+            'callback' => 'gread_api_get_note',
+            'permission_callback' => '__return_true'
+        ),
+        array(
+            'methods' => 'PUT',
+            'callback' => 'gread_api_update_note',
+            'permission_callback' => 'gread_check_user_permission'
+        ),
+        array(
+            'methods' => 'DELETE',
+            'callback' => 'gread_api_delete_note',
+            'permission_callback' => 'gread_check_user_permission'
+        )
+    ));
+
+    register_rest_route('gread/v1', '/notes/(?P<note_id>\d+)/like', array(
+        array(
+            'methods' => 'POST',
+            'callback' => 'gread_api_like_note',
+            'permission_callback' => 'gread_check_user_permission'
+        ),
+        array(
+            'methods' => 'DELETE',
+            'callback' => 'gread_api_unlike_note',
+            'permission_callback' => 'gread_check_user_permission'
+        )
+    ));
+
+    // --- Authors API Routes ---
+    register_rest_route('gread/v1', '/authors', array(
+        array(
+            'methods' => 'GET',
+            'callback' => 'gread_api_get_authors',
+            'permission_callback' => '__return_true',
+            'args' => array(
+                'search' => array(
+                    'required' => false,
+                    'sanitize_callback' => 'sanitize_text_field'
+                ),
+                'page' => array(
+                    'required' => false,
+                    'default' => 1
+                ),
+                'per_page' => array(
+                    'required' => false,
+                    'default' => 20
+                )
+            )
+        ),
+        array(
+            'methods' => 'POST',
+            'callback' => 'gread_api_create_author',
+            'permission_callback' => 'gread_check_user_permission',
+            'args' => array(
+                'name' => array(
+                    'required' => true,
+                    'sanitize_callback' => 'sanitize_text_field'
+                ),
+                'bio' => array(
+                    'required' => false,
+                    'sanitize_callback' => 'sanitize_textarea_field'
+                )
+            )
+        )
+    ));
+
+    register_rest_route('gread/v1', '/authors/(?P<author_id>\d+)', array(
+        array(
+            'methods' => 'GET',
+            'callback' => 'gread_api_get_author',
+            'permission_callback' => '__return_true'
+        ),
+        array(
+            'methods' => 'PUT',
+            'callback' => 'gread_api_update_author',
+            'permission_callback' => 'gread_check_user_permission'
+        )
+    ));
+
+    register_rest_route('gread/v1', '/authors/by-name/(?P<name>[a-zA-Z0-9-]+)', array(
+        'methods' => 'GET',
+        'callback' => 'gread_api_get_author_by_name',
+        'permission_callback' => '__return_true'
+    ));
+
+    register_rest_route('gread/v1', '/authors/(?P<author_id>\d+)/books', array(
+        'methods' => 'GET',
+        'callback' => 'gread_api_get_author_books',
+        'permission_callback' => '__return_true'
+    ));
+
+
 }
 add_action('rest_api_init', 'gread_register_rest_routes');
 
