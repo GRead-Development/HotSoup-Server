@@ -51,6 +51,19 @@ function hs_gid_activate()
 		KEY is_primary (is_primary)
 	)");
 
+	// User ISBN preferences - tracks which edition/ISBN a user owns for each book
+	$wpdb -> query( "CREATE TABLE IF NOT EXISTS {$wpdb -> prefix}hs_user_book_isbns (
+		id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+		user_id BIGINT(20) UNSIGNED NOT NULL,
+		book_id BIGINT(20) UNSIGNED NOT NULL,
+		isbn VARCHAR(13) NOT NULL,
+		selected_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (id),
+		UNIQUE KEY user_book (user_id, book_id),
+		KEY user_id (user_id),
+		KEY book_id (book_id)
+	)");
+
 }
 
 

@@ -51,6 +51,10 @@ function hs_merge_books($from_book_id, $to_book_id, $sync_metadata = true, $reas
         $from_gid = hs_get_or_create_gid($from_book_id);
         $to_gid = hs_get_or_create_gid($to_book_id);
 
+        // Ensure both books' ISBNs are in the table (migrate from ACF if needed)
+        hs_ensure_isbn_in_table($from_book_id, $from_gid);
+        hs_ensure_isbn_in_table($to_book_id, $to_gid);
+
         // Update all posts with from_gid to use to_gid
         $updated = $wpdb->update(
             $wpdb->prefix . 'hs_gid',
@@ -91,33 +95,6 @@ function hs_merge_books($from_book_id, $to_book_id, $sync_metadata = true, $reas
         // Sync metadata if requested
         if ($sync_metadata) {
             hs_sync_book_metadata($to_book_id, $from_book_id);
-        }
-
-        // Add the ISBN from the merged book to the canonical book's ISBN table
-        $from_isbn = get_field('book_isbn', $from_book_id);
-        if ($from_isbn) {
-            // Check if ISBN already exists
-            $isbn_exists = $wpdb->get_var($wpdb->prepare(
-                "SELECT id FROM {$wpdb->prefix}hs_book_isbns WHERE isbn = %s",
-                sanitize_text_field($from_isbn)
-            ));
-
-            if (!$isbn_exists) {
-                $year = get_field('publication_year', $from_book_id);
-                $wpdb->insert(
-                    $wpdb->prefix . 'hs_book_isbns',
-                    array(
-                        'gid' => $to_gid,
-                        'post_id' => $to_book_id,
-                        'isbn' => sanitize_text_field($from_isbn),
-                        'edition' => '',
-                        'publication_year' => $year ? intval($year) : null,
-                        'is_primary' => 0,
-                        'created_at' => current_time('mysql')
-                    ),
-                    array('%d', '%d', '%s', '%s', '%d', '%d', '%s')
-                );
-            }
         }
 
         // Update any duplicate reports
@@ -464,4 +441,250 @@ function hs_remove_isbn($isbn)
     );
 
     return $result !== false;
+}
+
+/**
+ * Ensure a book's ISBN is in the hs_book_isbns table
+ * Migrates from ACF field if needed
+ *
+ * @param int $book_id The book post ID
+ * @param int $gid The book's GID
+ * @return bool True if ISBN was ensured/added
+ */
+function hs_ensure_isbn_in_table($book_id, $gid)
+{
+    global $wpdb;
+
+    // Check if this book already has ISBNs in the table
+    $existing_count = $wpdb->get_var($wpdb->prepare(
+        "SELECT COUNT(*) FROM {$wpdb->prefix}hs_book_isbns WHERE post_id = %d",
+        $book_id
+    ));
+
+    // If ISBNs already exist, we're done
+    if ($existing_count > 0) {
+        return true;
+    }
+
+    // Get ISBN from ACF field
+    $isbn = get_field('book_isbn', $book_id);
+    if (empty($isbn)) {
+        return false;
+    }
+
+    // Check if this ISBN already exists globally
+    $isbn_exists = $wpdb->get_var($wpdb->prepare(
+        "SELECT id FROM {$wpdb->prefix}hs_book_isbns WHERE isbn = %s",
+        sanitize_text_field($isbn)
+    ));
+
+    if ($isbn_exists) {
+        // ISBN exists but for a different book - this is a duplicate situation
+        // We'll still add it for this book but not as primary
+        $is_primary = 0;
+    } else {
+        $is_primary = 1;
+    }
+
+    // Add the ISBN to the table
+    $year = get_field('publication_year', $book_id);
+    $result = $wpdb->insert(
+        $wpdb->prefix . 'hs_book_isbns',
+        array(
+            'gid' => intval($gid),
+            'post_id' => intval($book_id),
+            'isbn' => sanitize_text_field($isbn),
+            'edition' => '',
+            'publication_year' => $year ? intval($year) : null,
+            'is_primary' => $is_primary,
+            'created_at' => current_time('mysql')
+        ),
+        array('%d', '%d', '%s', '%s', '%d', '%d', '%s')
+    );
+
+    return $result !== false;
+}
+
+/**
+ * Set a user's preferred ISBN for a book
+ *
+ * @param int $user_id The user ID
+ * @param int $book_id The book post ID
+ * @param string $isbn The ISBN they own
+ * @return bool|WP_Error True on success
+ */
+function hs_set_user_book_isbn($user_id, $book_id, $isbn)
+{
+    global $wpdb;
+
+    // Verify the ISBN exists for this book
+    $isbn_record = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM {$wpdb->prefix}hs_book_isbns WHERE post_id = %d AND isbn = %s",
+        $book_id,
+        sanitize_text_field($isbn)
+    ));
+
+    if (!$isbn_record) {
+        return new WP_Error('invalid_isbn', 'This ISBN is not associated with this book');
+    }
+
+    // Insert or update the user's preference
+    $existing = $wpdb->get_row($wpdb->prepare(
+        "SELECT id FROM {$wpdb->prefix}hs_user_book_isbns WHERE user_id = %d AND book_id = %d",
+        $user_id,
+        $book_id
+    ));
+
+    if ($existing) {
+        // Update existing preference
+        $result = $wpdb->update(
+            $wpdb->prefix . 'hs_user_book_isbns',
+            array(
+                'isbn' => sanitize_text_field($isbn),
+                'selected_at' => current_time('mysql')
+            ),
+            array(
+                'user_id' => $user_id,
+                'book_id' => $book_id
+            ),
+            array('%s', '%s'),
+            array('%d', '%d')
+        );
+    } else {
+        // Insert new preference
+        $result = $wpdb->insert(
+            $wpdb->prefix . 'hs_user_book_isbns',
+            array(
+                'user_id' => $user_id,
+                'book_id' => $book_id,
+                'isbn' => sanitize_text_field($isbn),
+                'selected_at' => current_time('mysql')
+            ),
+            array('%d', '%d', '%s', '%s')
+        );
+    }
+
+    if ($result === false) {
+        return new WP_Error('update_failed', 'Failed to update ISBN preference');
+    }
+
+    return true;
+}
+
+/**
+ * Get a user's preferred ISBN for a book
+ *
+ * @param int $user_id The user ID
+ * @param int $book_id The book post ID
+ * @return string|null The ISBN or null if not set
+ */
+function hs_get_user_book_isbn($user_id, $book_id)
+{
+    global $wpdb;
+
+    $isbn = $wpdb->get_var($wpdb->prepare(
+        "SELECT isbn FROM {$wpdb->prefix}hs_user_book_isbns WHERE user_id = %d AND book_id = %d",
+        $user_id,
+        $book_id
+    ));
+
+    return $isbn;
+}
+
+/**
+ * Get the page count for a specific ISBN
+ *
+ * @param string $isbn The ISBN
+ * @return int|null Page count or null
+ */
+function hs_get_isbn_page_count($isbn)
+{
+    global $wpdb;
+
+    // Get the post_id for this ISBN
+    $post_id = $wpdb->get_var($wpdb->prepare(
+        "SELECT post_id FROM {$wpdb->prefix}hs_book_isbns WHERE isbn = %s LIMIT 1",
+        sanitize_text_field($isbn)
+    ));
+
+    if (!$post_id) {
+        return null;
+    }
+
+    // Get page count from ACF field
+    $page_count = get_field('nop', $post_id);
+    return $page_count ? intval($page_count) : null;
+}
+
+/**
+ * Get book details for a user including their preferred ISBN and page count
+ *
+ * @param int $book_id The book post ID
+ * @param int $user_id The user ID
+ * @return array|null Book details with user's edition info
+ */
+function hs_get_book_for_user($book_id, $user_id)
+{
+    $post = get_post($book_id);
+    if (!$post || $post->post_type !== 'book') {
+        return null;
+    }
+
+    // Get all available ISBNs
+    $available_isbns = hs_get_book_isbns($book_id);
+
+    // Get user's preferred ISBN
+    $user_isbn = hs_get_user_book_isbn($user_id, $book_id);
+
+    // Determine which ISBN data to use
+    $active_isbn_data = null;
+    if ($user_isbn) {
+        // Find the user's preferred ISBN in the list
+        foreach ($available_isbns as $isbn_record) {
+            if ($isbn_record->isbn === $user_isbn) {
+                $active_isbn_data = $isbn_record;
+                break;
+            }
+        }
+    }
+
+    // If no user preference or not found, use primary ISBN
+    if (!$active_isbn_data && !empty($available_isbns)) {
+        foreach ($available_isbns as $isbn_record) {
+            if ($isbn_record->is_primary) {
+                $active_isbn_data = $isbn_record;
+                break;
+            }
+        }
+    }
+
+    // If still no ISBN, use the first one
+    if (!$active_isbn_data && !empty($available_isbns)) {
+        $active_isbn_data = $available_isbns[0];
+    }
+
+    // Get page count - try from the active ISBN's post first
+    $page_count = null;
+    if ($active_isbn_data) {
+        $page_count = get_field('nop', $active_isbn_data->post_id);
+    }
+
+    // Fallback to main book's page count
+    if (!$page_count) {
+        $page_count = get_field('nop', $book_id);
+    }
+
+    return array(
+        'id' => $book_id,
+        'title' => $post->post_title,
+        'author' => get_field('book_author', $book_id),
+        'description' => $post->post_content,
+        'page_count' => $page_count ? intval($page_count) : 0,
+        'user_isbn' => $user_isbn,
+        'active_isbn' => $active_isbn_data ? $active_isbn_data->isbn : get_field('book_isbn', $book_id),
+        'active_edition' => $active_isbn_data ? $active_isbn_data->edition : '',
+        'active_year' => $active_isbn_data ? $active_isbn_data->publication_year : null,
+        'available_isbns' => $available_isbns,
+        'has_multiple_editions' => count($available_isbns) > 1
+    );
 }

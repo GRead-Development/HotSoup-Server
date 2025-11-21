@@ -166,6 +166,39 @@ add_action('rest_api_init', function() {
             )
         )
     ));
+
+    // Set user's preferred ISBN for a book
+    register_rest_route('gread/v1', '/books/(?P<id>\d+)/my-isbn', array(
+        'methods' => 'POST',
+        'callback' => 'gread_api_set_user_isbn',
+        'permission_callback' => 'is_user_logged_in',
+        'args' => array(
+            'id' => array(
+                'required' => true,
+                'type' => 'integer',
+                'sanitize_callback' => 'absint'
+            ),
+            'isbn' => array(
+                'required' => true,
+                'type' => 'string',
+                'sanitize_callback' => 'sanitize_text_field'
+            )
+        )
+    ));
+
+    // Get book details for current user (includes their preferred ISBN)
+    register_rest_route('gread/v1', '/books/(?P<id>\d+)/for-me', array(
+        'methods' => 'GET',
+        'callback' => 'gread_api_get_book_for_user',
+        'permission_callback' => 'is_user_logged_in',
+        'args' => array(
+            'id' => array(
+                'required' => true,
+                'type' => 'integer',
+                'sanitize_callback' => 'absint'
+            )
+        )
+    ));
 });
 
 /**
@@ -408,5 +441,72 @@ function gread_api_get_books_by_gid($request)
         'gid' => $gid,
         'count' => count($books_data),
         'books' => $books_data
+    ));
+}
+
+/**
+ * Set user's preferred ISBN API endpoint
+ */
+function gread_api_set_user_isbn($request)
+{
+    $book_id = $request->get_param('id');
+    $isbn = $request->get_param('isbn');
+    $user_id = get_current_user_id();
+
+    $result = hs_set_user_book_isbn($user_id, $book_id, $isbn);
+
+    if (is_wp_error($result)) {
+        return new WP_Error(
+            $result->get_error_code(),
+            $result->get_error_message(),
+            array('status' => 400)
+        );
+    }
+
+    return rest_ensure_response(array(
+        'success' => true,
+        'message' => 'Your edition preference has been saved',
+        'book_id' => $book_id,
+        'isbn' => $isbn
+    ));
+}
+
+/**
+ * Get book details for user API endpoint
+ */
+function gread_api_get_book_for_user($request)
+{
+    $book_id = $request->get_param('id');
+    $user_id = get_current_user_id();
+
+    $book_data = hs_get_book_for_user($book_id, $user_id);
+
+    if (!$book_data) {
+        return new WP_Error('book_not_found', 'Book not found', array('status' => 404));
+    }
+
+    // Format available ISBNs for response
+    $formatted_isbns = array();
+    foreach ($book_data['available_isbns'] as $isbn_record) {
+        $formatted_isbns[] = array(
+            'isbn' => $isbn_record->isbn,
+            'edition' => $isbn_record->edition,
+            'year' => $isbn_record->publication_year,
+            'is_primary' => (bool) $isbn_record->is_primary,
+            'is_users' => $isbn_record->isbn === $book_data['user_isbn']
+        );
+    }
+
+    $book_data['available_isbns'] = $formatted_isbns;
+
+    // Add cover URL
+    $thumbnail_id = get_post_thumbnail_id($book_id);
+    if ($thumbnail_id) {
+        $book_data['cover_url'] = wp_get_attachment_image_url($thumbnail_id, 'full');
+    }
+
+    return rest_ensure_response(array(
+        'success' => true,
+        'book' => $book_data
     ));
 }

@@ -31,14 +31,15 @@ function hs_book_merge_admin_page()
     }
 
     // Get current tab
-    $tab = isset($_GET['tab']) ? $_GET['tab'] : 'search';
+    $tab = isset($_GET['tab']) ? $_GET['tab'] : 'recent';
 
     ?>
     <div class="wrap">
         <h1>Book Merge & ISBN Manager</h1>
 
         <h2 class="nav-tab-wrapper">
-            <a href="?post_type=book&page=hs-book-merge&tab=search" class="nav-tab <?php echo $tab === 'search' ? 'nav-tab-active' : ''; ?>">Search & Merge</a>
+            <a href="?post_type=book&page=hs-book-merge&tab=recent" class="nav-tab <?php echo $tab === 'recent' ? 'nav-tab-active' : ''; ?>">Recent Books</a>
+            <a href="?post_type=book&page=hs-book-merge&tab=search" class="nav-tab <?php echo $tab === 'search' ? 'nav-tab-active' : ''; ?>">Search</a>
             <a href="?post_type=book&page=hs-book-merge&tab=isbn" class="nav-tab <?php echo $tab === 'isbn' ? 'nav-tab-active' : ''; ?>">ISBN Management</a>
             <a href="?post_type=book&page=hs-book-merge&tab=duplicate-reports" class="nav-tab <?php echo $tab === 'duplicate-reports' ? 'nav-tab-active' : ''; ?>">Duplicate Reports</a>
         </h2>
@@ -46,6 +47,9 @@ function hs_book_merge_admin_page()
         <div class="tab-content">
             <?php
             switch ($tab) {
+                case 'search':
+                    hs_book_merge_tab_search();
+                    break;
                 case 'isbn':
                     hs_book_merge_tab_isbn();
                     break;
@@ -53,7 +57,7 @@ function hs_book_merge_admin_page()
                     hs_book_merge_tab_duplicate_reports();
                     break;
                 default:
-                    hs_book_merge_tab_search();
+                    hs_book_merge_tab_recent();
                     break;
             }
             ?>
@@ -172,6 +176,242 @@ function hs_book_merge_admin_page()
         }
     </script>
     <?php
+}
+
+function hs_book_merge_tab_recent()
+{
+    global $wpdb;
+
+    // Get pagination
+    $page = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
+    $per_page = 50;
+    $offset = ($page - 1) * $per_page;
+
+    // Display notices
+    if (isset($_GET['merged']) && $_GET['merged'] === 'success') {
+        echo '<div class="hs-notice success"><strong>Success!</strong> Books have been merged successfully.</div>';
+    } elseif (isset($_GET['error'])) {
+        echo '<div class="hs-notice error"><strong>Error:</strong> ' . esc_html(urldecode($_GET['error'])) . '</div>';
+    }
+
+    // Get statistics
+    $total_books = wp_count_posts('book')->publish;
+    $total_isbns = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}hs_book_isbns");
+
+    ?>
+    <div class="hs-stats-box">
+        <strong>Statistics:</strong>
+        <?php echo number_format($total_books); ?> books,
+        <?php echo number_format($total_isbns); ?> ISBNs tracked
+    </div>
+
+    <h3>Recently Added Books (<?php echo number_format($total_books); ?> total)</h3>
+    <p>Showing the most recently added books to help identify duplicates. Use the search tab to find specific books.</p>
+
+    <?php
+    // Get recent books
+    $args = array(
+        'post_type' => 'book',
+        'post_status' => 'publish',
+        'posts_per_page' => $per_page,
+        'offset' => $offset,
+        'orderby' => 'date',
+        'order' => 'DESC'
+    );
+
+    $query = new WP_Query($args);
+    $books = array();
+
+    if ($query->have_posts()) {
+        while ($query->have_posts()) {
+            $query->the_post();
+            $post_id = get_the_ID();
+
+            $books[] = array(
+                'id' => $post_id,
+                'title' => get_the_title(),
+                'author' => get_field('book_author', $post_id),
+                'isbn' => get_field('book_isbn', $post_id),
+                'page_count' => get_field('nop', $post_id),
+                'date' => get_the_date('Y-m-d H:i', $post_id),
+                'gid' => hs_get_gid($post_id),
+                'is_canonical' => hs_is_canonical_book($post_id)
+            );
+        }
+        wp_reset_postdata();
+    }
+
+    // Render books using same layout as search
+    if (!empty($books)):
+        foreach ($books as $book):
+            $isbns = hs_get_book_isbns($book['id']);
+            $merge_history = hs_get_book_merge_history($book['id']);
+            $thumbnail = get_the_post_thumbnail($book['id'], 'thumbnail', array('class' => 'hs-book-thumbnail'));
+            ?>
+            <div class="hs-book-item <?php echo $book['is_canonical'] ? 'canonical' : ''; ?>">
+                <?php if ($thumbnail): ?>
+                    <?php echo $thumbnail; ?>
+                <?php endif; ?>
+
+                <div class="hs-book-details">
+                    <h3>
+                        <?php echo esc_html($book['title']); ?>
+                        <?php if ($book['is_canonical']): ?>
+                            <span style="background: #2271b1; color: white; padding: 2px 8px; font-size: 0.8em; border-radius: 3px;">CANONICAL</span>
+                        <?php endif; ?>
+                    </h3>
+
+                    <div class="hs-book-meta">
+                        <strong>ID:</strong> <?php echo $book['id']; ?> |
+                        <strong>Author:</strong> <?php echo esc_html($book['author'] ?: 'Unknown'); ?> |
+                        <strong>Pages:</strong> <?php echo $book['page_count'] ?: 'N/A'; ?> |
+                        <strong>Added:</strong> <?php echo $book['date']; ?> |
+                        <strong>GID:</strong> <?php echo $book['gid'] ?: 'None'; ?>
+                    </div>
+
+                    <?php if (!empty($isbns)): ?>
+                        <div class="hs-book-meta">
+                            <strong>ISBNs (<?php echo count($isbns); ?>):</strong>
+                            <ul class="hs-isbn-list">
+                                <?php foreach ($isbns as $isbn): ?>
+                                    <li class="<?php echo $isbn->is_primary ? 'hs-isbn-primary' : ''; ?>">
+                                        <?php echo esc_html($isbn->isbn); ?>
+                                        <?php if ($isbn->is_primary): ?>
+                                            <span style="color: #2271b1;">(Primary)</span>
+                                        <?php endif; ?>
+                                        <?php if ($isbn->edition): ?>
+                                            - <?php echo esc_html($isbn->edition); ?>
+                                        <?php endif; ?>
+                                        <?php if ($isbn->publication_year): ?>
+                                            (<?php echo $isbn->publication_year; ?>)
+                                        <?php endif; ?>
+                                    </li>
+                                <?php endforeach; ?>
+                            </ul>
+                        </div>
+                    <?php else: ?>
+                        <div class="hs-book-meta">
+                            <strong>ISBNs:</strong> None in database
+                            <?php if ($book['isbn']): ?>
+                                (ACF field has: <?php echo esc_html($book['isbn']); ?>)
+                            <?php endif; ?>
+                        </div>
+                    <?php endif; ?>
+
+                    <?php if (!empty($merge_history)): ?>
+                        <div class="hs-book-meta">
+                            <strong>Merge History:</strong> This book has <?php echo count($merge_history); ?> merged book(s)
+                        </div>
+                    <?php endif; ?>
+                </div>
+
+                <div class="hs-merge-controls">
+                    <div class="hs-button-group">
+                        <button type="button" class="button" onclick="toggleMergeForm(<?php echo $book['id']; ?>)">Merge This Book</button>
+                        <button type="button" class="button" onclick="toggleISBNForm(<?php echo $book['id']; ?>)">Add ISBN</button>
+                        <a href="<?php echo get_edit_post_link($book['id']); ?>" class="button">Edit Book</a>
+                        <a href="<?php echo get_permalink($book['id']); ?>" class="button" target="_blank">View</a>
+                    </div>
+
+                    <!-- Merge Form -->
+                    <div id="merge-form-<?php echo $book['id']; ?>" class="hs-merge-form" style="display: none;">
+                        <h4>Merge "<?php echo esc_html($book['title']); ?>" into another book</h4>
+                        <form method="post" onsubmit="return confirmMerge('<?php echo esc_js($book['title']); ?>', document.getElementById('target-book-<?php echo $book['id']; ?>').value);">
+                            <?php wp_nonce_field('hs_merge_books', 'merge_nonce'); ?>
+                            <input type="hidden" name="action" value="merge_books">
+                            <input type="hidden" name="from_book_id" value="<?php echo $book['id']; ?>">
+                            <input type="hidden" name="current_tab" value="recent">
+
+                            <p>
+                                <label><strong>Target Book ID:</strong></label><br>
+                                <input type="number" name="to_book_id" id="target-book-<?php echo $book['id']; ?>" required style="width: 150px;">
+                                <span class="description">Enter the ID of the book to merge INTO (this book will remain, the current book will be merged)</span>
+                            </p>
+
+                            <p>
+                                <label>
+                                    <input type="checkbox" name="sync_metadata" value="1" checked>
+                                    <strong>Sync metadata</strong> - Update this book's title, author, and page count to match the target book
+                                </label>
+                            </p>
+
+                            <p>
+                                <label><strong>Reason (optional):</strong></label><br>
+                                <textarea name="reason" style="width: 100%; max-width: 500px;" rows="3" placeholder="Why are these books being merged?"></textarea>
+                            </p>
+
+                            <p>
+                                <button type="submit" class="button button-primary">Merge Books</button>
+                                <button type="button" class="button" onclick="toggleMergeForm(<?php echo $book['id']; ?>)">Cancel</button>
+                            </p>
+                        </form>
+                    </div>
+
+                    <!-- Add ISBN Form -->
+                    <div id="isbn-form-<?php echo $book['id']; ?>" class="hs-merge-form" style="display: none;">
+                        <h4>Add ISBN to "<?php echo esc_html($book['title']); ?>"</h4>
+                        <form method="post">
+                            <?php wp_nonce_field('hs_add_isbn', 'isbn_nonce'); ?>
+                            <input type="hidden" name="action" value="add_isbn">
+                            <input type="hidden" name="book_id" value="<?php echo $book['id']; ?>">
+
+                            <p>
+                                <label><strong>ISBN:</strong></label><br>
+                                <input type="text" name="isbn" required style="width: 200px;" placeholder="978-0-123456-78-9">
+                            </p>
+
+                            <p>
+                                <label><strong>Edition (optional):</strong></label><br>
+                                <input type="text" name="edition" style="width: 200px;" placeholder="First Edition, Paperback, etc.">
+                            </p>
+
+                            <p>
+                                <label><strong>Publication Year (optional):</strong></label><br>
+                                <input type="number" name="year" style="width: 100px;" placeholder="2024">
+                            </p>
+
+                            <p>
+                                <label>
+                                    <input type="checkbox" name="is_primary" value="1">
+                                    Set as primary ISBN
+                                </label>
+                            </p>
+
+                            <p>
+                                <button type="submit" class="button button-primary">Add ISBN</button>
+                                <button type="button" class="button" onclick="toggleISBNForm(<?php echo $book['id']; ?>)">Cancel</button>
+                            </p>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        <?php endforeach; ?>
+
+        <!-- Pagination -->
+        <?php
+        $total_pages = ceil($total_books / $per_page);
+        if ($total_pages > 1):
+        ?>
+            <div style="margin: 20px 0; text-align: center;">
+                <?php
+                $base_url = admin_url('edit.php?post_type=book&page=hs-book-merge&tab=recent');
+
+                if ($page > 1):
+                    echo '<a href="' . $base_url . '&paged=' . ($page - 1) . '" class="button">Previous</a> ';
+                endif;
+
+                echo '<span style="margin: 0 10px;">Page ' . $page . ' of ' . $total_pages . '</span>';
+
+                if ($page < $total_pages):
+                    echo ' <a href="' . $base_url . '&paged=' . ($page + 1) . '" class="button">Next</a>';
+                endif;
+                ?>
+            </div>
+        <?php endif; ?>
+
+    <?php else: ?>
+        <p>No books found.</p>
+    <?php endif;
 }
 
 function hs_book_merge_tab_search()
@@ -298,6 +538,7 @@ function hs_book_merge_tab_search()
                                 <?php wp_nonce_field('hs_merge_books', 'merge_nonce'); ?>
                                 <input type="hidden" name="action" value="merge_books">
                                 <input type="hidden" name="from_book_id" value="<?php echo $book['id']; ?>">
+                                <input type="hidden" name="current_tab" value="search">
 
                                 <p>
                                     <label><strong>Target Book ID:</strong></label><br>
@@ -529,10 +770,13 @@ function hs_book_merge_handle_post()
 
             $result = hs_merge_books($from_book_id, $to_book_id, $sync_metadata, $reason);
 
+            // Determine which tab to redirect to
+            $redirect_tab = isset($_POST['current_tab']) ? sanitize_text_field($_POST['current_tab']) : 'recent';
+
             if (is_wp_error($result)) {
-                wp_redirect(admin_url('edit.php?post_type=book&page=hs-book-merge&tab=search&error=' . urlencode($result->get_error_message())));
+                wp_redirect(admin_url('edit.php?post_type=book&page=hs-book-merge&tab=' . $redirect_tab . '&error=' . urlencode($result->get_error_message())));
             } else {
-                wp_redirect(admin_url('edit.php?post_type=book&page=hs-book-merge&tab=search&merged=success'));
+                wp_redirect(admin_url('edit.php?post_type=book&page=hs-book-merge&tab=' . $redirect_tab . '&merged=success'));
             }
             exit;
 
