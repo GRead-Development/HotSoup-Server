@@ -20,6 +20,7 @@ require_once plugin_dir_path(__FILE__) . 'includes/api/mentions.php';
 require_once plugin_dir_path(__FILE__) . 'includes/api/achievements.php';
 require_once plugin_dir_path(__FILE__) . 'includes/api/inaccuracy_reports.php';
 require_once plugin_dir_path(__FILE__) . 'includes/api/notes.php';
+require_once plugin_dir_path(__FILE__) . 'includes/api/books.php';
 require_once plugin_dir_path(__FILE__) . 'includes/admin/chimera.php';
 // The importer form
 require_once plugin_dir_path(__FILE__) . 'includes/importer.php';
@@ -69,6 +70,8 @@ require_once plugin_dir_path(__FILE__) . 'includes/shortcodes/author_books.php';
 require_once plugin_dir_path(__FILE__) . 'includes/admin/tags_manager.php';
 require_once plugin_dir_path(__FILE__) . 'includes/widgets/site_activity.php';
 require_once plugin_dir_path(__FILE__) . 'includes/gid.php';
+require_once plugin_dir_path(__FILE__) . 'includes/book_merge.php';
+require_once plugin_dir_path(__FILE__) . 'includes/admin/book_merge_manager.php';
 require_once plugin_dir_path(__FILE__) . 'includes/notes.php';
 require_once plugin_dir_path(__FILE__) . 'includes/shortcodes/note_form.php';
 require_once plugin_dir_path(__FILE__) . 'includes/shortcodes/notes_modal.php';

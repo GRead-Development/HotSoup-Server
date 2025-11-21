@@ -196,29 +196,7 @@ function gread_create_book_post($book_data, $isbn) {
         update_field('nop', intval($book_data['number_of_pages']), $post_id);
     }
 
-    // Handle cover image
-    if (isset($book_data['cover']['large'])) {
-        require_once(ABSPATH . 'wp-admin/includes/media.php');
-        require_once(ABSPATH . 'wp-admin/includes/file.php');
-        require_once(ABSPATH . 'wp-admin/includes/image.php');
-
-        $image_url = $book_data['cover']['large'];
-        $attachment_id = media_sideload_image($image_url, $post_id, $title, 'id');
-
-        if (!is_wp_error($attachment_id)) {
-            set_post_thumbnail($post_id, $attachment_id);
-        }
-    }
-
-    // Update user statistics
-    $user_id = get_current_user_id();
-    if ($user_id && function_exists('hs_increment_books_added')) {
-        hs_increment_books_added($user_id);
-        if (function_exists('hs_update_user_stats')) {
-            hs_update_user_stats($user_id);
-        }
-    }
-
+	// Add to search index if available
 	if (function_exists('hs_search_add_to_index'))
 	{
 		hs_search_add_to_index($post_id);

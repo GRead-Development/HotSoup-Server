@@ -1,0 +1,467 @@
+<?php
+/**
+ * Book Merge System
+ *
+ * Similar to the author merge system, this allows merging multiple book posts
+ * with different ISBNs into a single canonical book record.
+ */
+
+/**
+ * Merge one book into another
+ *
+ * Moves all ISBNs from the source book to the target book,
+ * updates metadata, and marks the source book as merged.
+ *
+ * @param int $from_book_id The book post ID to merge FROM (will be marked as merged)
+ * @param int $to_book_id The book post ID to merge TO (canonical book)
+ * @param bool $sync_metadata Whether to sync metadata from canonical to merged book
+ * @param string $reason Optional reason for the merge
+ * @return bool|WP_Error True on success, WP_Error on failure
+ */
+function hs_merge_books($from_book_id, $to_book_id, $sync_metadata = true, $reason = '')
+{
+    global $wpdb;
+
+    // Validate inputs
+    if (!$from_book_id || !$to_book_id) {
+        return new WP_Error('invalid_book_ids', 'Both book IDs are required');
+    }
+
+    if ($from_book_id === $to_book_id) {
+        return new WP_Error('same_book', 'Cannot merge a book into itself');
+    }
+
+    // Verify both posts exist and are books
+    $from_post = get_post($from_book_id);
+    $to_post = get_post($to_book_id);
+
+    if (!$from_post || $from_post->post_type !== 'book') {
+        return new WP_Error('invalid_from_book', 'Source book not found');
+    }
+
+    if (!$to_post || $to_post->post_type !== 'book') {
+        return new WP_Error('invalid_to_book', 'Target book not found');
+    }
+
+    // Start transaction
+    $wpdb->query('START TRANSACTION');
+
+    try {
+        // Get or create GIDs for both books
+        $from_gid = hs_get_or_create_gid($from_book_id);
+        $to_gid = hs_get_or_create_gid($to_book_id);
+
+        // Update all posts with from_gid to use to_gid
+        $updated = $wpdb->update(
+            $wpdb->prefix . 'hs_gid',
+            array(
+                'gid' => $to_gid,
+                'is_canonical' => 0,
+                'merged_by' => get_current_user_id(),
+                'merge_reason' => sanitize_text_field($reason),
+                'date_merged' => current_time('mysql')
+            ),
+            array('post_id' => $from_book_id),
+            array('%d', '%d', '%d', '%s', '%s'),
+            array('%d')
+        );
+
+        if ($updated === false) {
+            throw new Exception('Failed to update GID mapping');
+        }
+
+        // Move all ISBNs from from_gid to to_gid
+        $isbn_updated = $wpdb->update(
+            $wpdb->prefix . 'hs_book_isbns',
+            array('gid' => $to_gid),
+            array('gid' => $from_gid),
+            array('%d'),
+            array('%d')
+        );
+
+        // Update post_id for ISBNs that were associated with from_book_id
+        $wpdb->update(
+            $wpdb->prefix . 'hs_book_isbns',
+            array('post_id' => $to_book_id),
+            array('post_id' => $from_book_id),
+            array('%d'),
+            array('%d')
+        );
+
+        // Sync metadata if requested
+        if ($sync_metadata) {
+            hs_sync_book_metadata($to_book_id, $from_book_id);
+        }
+
+        // Add the ISBN from the merged book to the canonical book's ISBN table
+        $from_isbn = get_field('book_isbn', $from_book_id);
+        if ($from_isbn) {
+            // Check if ISBN already exists
+            $isbn_exists = $wpdb->get_var($wpdb->prepare(
+                "SELECT id FROM {$wpdb->prefix}hs_book_isbns WHERE isbn = %s",
+                sanitize_text_field($from_isbn)
+            ));
+
+            if (!$isbn_exists) {
+                $year = get_field('publication_year', $from_book_id);
+                $wpdb->insert(
+                    $wpdb->prefix . 'hs_book_isbns',
+                    array(
+                        'gid' => $to_gid,
+                        'post_id' => $to_book_id,
+                        'isbn' => sanitize_text_field($from_isbn),
+                        'edition' => '',
+                        'publication_year' => $year ? intval($year) : null,
+                        'is_primary' => 0,
+                        'created_at' => current_time('mysql')
+                    ),
+                    array('%d', '%d', '%s', '%s', '%d', '%d', '%s')
+                );
+            }
+        }
+
+        // Update any duplicate reports
+        $wpdb->update(
+            $wpdb->prefix . 'hs_duplicate_reports',
+            array('status' => 'merged', 'reviewed_by' => get_current_user_id()),
+            array('primary_book_id' => $from_book_id),
+            array('%s', '%d'),
+            array('%d')
+        );
+
+        // Commit transaction
+        $wpdb->query('COMMIT');
+
+        // Fire action hook for other plugins
+        do_action('hs_books_merged', $from_book_id, $to_book_id, $to_gid);
+
+        return true;
+
+    } catch (Exception $e) {
+        // Rollback on error
+        $wpdb->query('ROLLBACK');
+        return new WP_Error('merge_failed', $e->getMessage());
+    }
+}
+
+/**
+ * Sync metadata from canonical book to merged book
+ * Updates the merged book's title, author, and page count to match the canonical book
+ *
+ * @param int $canonical_book_id The canonical book (source of metadata)
+ * @param int $merged_book_id The merged book (destination)
+ * @return bool True on success
+ */
+function hs_sync_book_metadata($canonical_book_id, $merged_book_id)
+{
+    // Get metadata from canonical book
+    $title = get_the_title($canonical_book_id);
+    $author = get_field('book_author', $canonical_book_id);
+    $page_count = get_field('nop', $canonical_book_id);
+    $pub_year = get_field('publication_year', $canonical_book_id);
+    $description = get_post_field('post_content', $canonical_book_id);
+
+    // Update merged book post
+    wp_update_post(array(
+        'ID' => $merged_book_id,
+        'post_title' => $title,
+        'post_content' => $description
+    ));
+
+    // Update ACF fields
+    if ($author) {
+        update_field('book_author', $author, $merged_book_id);
+    }
+
+    if ($page_count) {
+        update_field('nop', $page_count, $merged_book_id);
+    }
+
+    if ($pub_year) {
+        update_field('publication_year', $pub_year, $merged_book_id);
+    }
+
+    // Copy featured image if exists
+    $thumbnail_id = get_post_thumbnail_id($canonical_book_id);
+    if ($thumbnail_id) {
+        set_post_thumbnail($merged_book_id, $thumbnail_id);
+    }
+
+    return true;
+}
+
+/**
+ * Get all books in a GID group
+ *
+ * @param int $gid The group ID
+ * @return array Array of post objects
+ */
+function hs_get_books_by_gid($gid)
+{
+    $post_ids = hs_get_posts_by_gid($gid);
+    if (empty($post_ids)) {
+        return array();
+    }
+
+    $books = array();
+    foreach ($post_ids as $post_id) {
+        $post = get_post($post_id);
+        if ($post && $post->post_type === 'book') {
+            $books[] = $post;
+        }
+    }
+
+    return $books;
+}
+
+/**
+ * Search for books by title, author, or ISBN
+ *
+ * @param string $search_term The search query
+ * @param int $limit Maximum number of results
+ * @return array Array of book data
+ */
+function hs_search_books($search_term, $limit = 20)
+{
+    global $wpdb;
+
+    $search_term = sanitize_text_field($search_term);
+    $search_like = '%' . $wpdb->esc_like($search_term) . '%';
+
+    // Search in post titles and content
+    $args = array(
+        'post_type' => 'book',
+        'posts_per_page' => $limit,
+        's' => $search_term,
+        'post_status' => 'publish'
+    );
+
+    $query = new WP_Query($args);
+    $results = array();
+
+    if ($query->have_posts()) {
+        while ($query->have_posts()) {
+            $query->the_post();
+            $post_id = get_the_ID();
+
+            $results[] = array(
+                'id' => $post_id,
+                'title' => get_the_title(),
+                'author' => get_field('book_author', $post_id),
+                'isbn' => get_field('book_isbn', $post_id),
+                'page_count' => get_field('nop', $post_id),
+                'gid' => hs_get_gid($post_id),
+                'is_canonical' => hs_is_canonical_book($post_id)
+            );
+        }
+        wp_reset_postdata();
+    }
+
+    // Also search by ISBN
+    $isbn_results = $wpdb->get_results($wpdb->prepare(
+        "SELECT DISTINCT bi.post_id, bi.isbn, bi.gid
+        FROM {$wpdb->prefix}hs_book_isbns bi
+        WHERE bi.isbn LIKE %s
+        LIMIT %d",
+        $search_like,
+        $limit
+    ));
+
+    foreach ($isbn_results as $isbn_result) {
+        // Check if we already have this book in results
+        $already_added = false;
+        foreach ($results as $result) {
+            if ($result['id'] == $isbn_result->post_id) {
+                $already_added = true;
+                break;
+            }
+        }
+
+        if (!$already_added) {
+            $post = get_post($isbn_result->post_id);
+            if ($post) {
+                $results[] = array(
+                    'id' => $post->ID,
+                    'title' => $post->post_title,
+                    'author' => get_field('book_author', $post->ID),
+                    'isbn' => $isbn_result->isbn,
+                    'page_count' => get_field('nop', $post->ID),
+                    'gid' => $isbn_result->gid,
+                    'is_canonical' => hs_is_canonical_book($post->ID)
+                );
+            }
+        }
+    }
+
+    return array_slice($results, 0, $limit);
+}
+
+/**
+ * Check if a book is the canonical book in its GID group
+ *
+ * @param int $post_id The book post ID
+ * @return bool True if canonical
+ */
+function hs_is_canonical_book($post_id)
+{
+    global $wpdb;
+
+    $result = $wpdb->get_var($wpdb->prepare(
+        "SELECT is_canonical FROM {$wpdb->prefix}hs_gid WHERE post_id = %d",
+        intval($post_id)
+    ));
+
+    return (bool) $result;
+}
+
+/**
+ * Set a book as the canonical book in its GID group
+ *
+ * @param int $post_id The book post ID
+ * @return bool True on success
+ */
+function hs_set_canonical_book($post_id)
+{
+    global $wpdb;
+
+    $gid = hs_get_gid($post_id);
+    if (!$gid) {
+        return false;
+    }
+
+    // Unset all canonical flags for this GID
+    $wpdb->update(
+        $wpdb->prefix . 'hs_gid',
+        array('is_canonical' => 0),
+        array('gid' => $gid),
+        array('%d'),
+        array('%d')
+    );
+
+    // Set this book as canonical
+    $result = $wpdb->update(
+        $wpdb->prefix . 'hs_gid',
+        array('is_canonical' => 1),
+        array('post_id' => $post_id),
+        array('%d'),
+        array('%d')
+    );
+
+    return $result !== false;
+}
+
+/**
+ * Get merge history for a book
+ *
+ * @param int $post_id The book post ID
+ * @return array Array of merge records
+ */
+function hs_get_book_merge_history($post_id)
+{
+    global $wpdb;
+
+    $gid = hs_get_gid($post_id);
+    if (!$gid) {
+        return array();
+    }
+
+    $results = $wpdb->get_results($wpdb->prepare(
+        "SELECT g.*, p.post_title, u.display_name as merged_by_name
+        FROM {$wpdb->prefix}hs_gid g
+        LEFT JOIN {$wpdb->posts} p ON g.post_id = p.ID
+        LEFT JOIN {$wpdb->users} u ON g.merged_by = u.ID
+        WHERE g.gid = %d AND g.is_canonical = 0
+        ORDER BY g.date_merged DESC",
+        intval($gid)
+    ));
+
+    return $results;
+}
+
+/**
+ * Add an ISBN to a book
+ *
+ * @param int $book_id The book post ID
+ * @param string $isbn The ISBN to add
+ * @param string $edition Edition information
+ * @param int $year Publication year
+ * @param bool $is_primary Whether this is the primary ISBN
+ * @return bool|WP_Error True on success, WP_Error on failure
+ */
+function hs_add_isbn_to_book($book_id, $isbn, $edition = '', $year = null, $is_primary = false)
+{
+    global $wpdb;
+
+    // Validate book exists
+    $post = get_post($book_id);
+    if (!$post || $post->post_type !== 'book') {
+        return new WP_Error('invalid_book', 'Book not found');
+    }
+
+    // Get or create GID
+    $gid = hs_get_or_create_gid($book_id);
+
+    // Clean ISBN
+    $isbn = sanitize_text_field($isbn);
+
+    // Check if ISBN already exists
+    $exists = $wpdb->get_var($wpdb->prepare(
+        "SELECT id FROM {$wpdb->prefix}hs_book_isbns WHERE isbn = %s",
+        $isbn
+    ));
+
+    if ($exists) {
+        return new WP_Error('isbn_exists', 'This ISBN is already associated with a book');
+    }
+
+    // If this is primary, unset other primary ISBNs for this GID
+    if ($is_primary) {
+        $wpdb->update(
+            $wpdb->prefix . 'hs_book_isbns',
+            array('is_primary' => 0),
+            array('gid' => $gid),
+            array('%d'),
+            array('%d')
+        );
+    }
+
+    // Insert the ISBN
+    $result = $wpdb->insert(
+        $wpdb->prefix . 'hs_book_isbns',
+        array(
+            'gid' => intval($gid),
+            'post_id' => intval($book_id),
+            'isbn' => $isbn,
+            'edition' => sanitize_text_field($edition),
+            'publication_year' => $year ? intval($year) : null,
+            'is_primary' => $is_primary ? 1 : 0,
+            'created_at' => current_time('mysql')
+        ),
+        array('%d', '%d', '%s', '%s', '%d', '%d', '%s')
+    );
+
+    if ($result === false) {
+        return new WP_Error('insert_failed', 'Failed to add ISBN');
+    }
+
+    return true;
+}
+
+/**
+ * Remove an ISBN from a book
+ *
+ * @param string $isbn The ISBN to remove
+ * @return bool True on success
+ */
+function hs_remove_isbn($isbn)
+{
+    global $wpdb;
+
+    $result = $wpdb->delete(
+        $wpdb->prefix . 'hs_book_isbns',
+        array('isbn' => sanitize_text_field($isbn)),
+        array('%s')
+    );
+
+    return $result !== false;
+}
