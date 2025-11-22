@@ -66,9 +66,27 @@ function hs_book_merge_admin_page()
             background: #fff;
             border: 1px solid #ddd;
             border-radius: 4px;
+            display: flex;
+            gap: 15px;
         }
         .hs-book-item.canonical {
             border-left: 4px solid #2271b1;
+        }
+        .hs-book-item.selected {
+            background: #f0f6fc;
+            border-color: #2271b1;
+        }
+        .hs-book-checkbox {
+            flex-shrink: 0;
+            padding-top: 5px;
+        }
+        .hs-book-checkbox input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+        .hs-book-content {
+            flex: 1;
         }
         .hs-book-item h3 {
             margin-top: 0;
@@ -114,6 +132,29 @@ function hs_book_merge_admin_page()
             background: #fff;
             border-left: 4px solid #2271b1;
             margin: 20px 0;
+        }
+        .hs-bulk-merge-box {
+            padding: 20px;
+            background: #fff;
+            border: 2px solid #2271b1;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+        .hs-bulk-merge-box h3 {
+            margin-top: 0;
+            color: #2271b1;
+        }
+        .hs-bulk-controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .hs-bulk-status {
+            padding: 10px 15px;
+            background: #f0f6fc;
+            border-radius: 4px;
+            font-weight: bold;
         }
         .hs-notice {
             padding: 10px 15px;
@@ -169,6 +210,73 @@ function hs_book_merge_admin_page()
         function confirmMerge(fromTitle, toTitle) {
             return confirm('Are you sure you want to merge "' + fromTitle + '" into "' + toTitle + '"?\n\nThis will:\n- Move all ISBNs to the target book\n- Update the merged book\'s metadata to match the target\n- Mark the source book as merged\n\nThis action cannot be undone.');
         }
+
+        // Bulk merge functionality
+        function updateBulkStatus() {
+            var checkboxes = document.querySelectorAll('.hs-book-select:checked');
+            var count = checkboxes.length;
+            var status = document.getElementById('bulk-status');
+            var mergeBtn = document.getElementById('bulk-merge-btn');
+
+            if (status) {
+                status.textContent = count + ' book' + (count !== 1 ? 's' : '') + ' selected';
+            }
+
+            if (mergeBtn) {
+                mergeBtn.disabled = count === 0;
+            }
+
+            // Highlight selected items
+            document.querySelectorAll('.hs-book-item').forEach(function(item) {
+                var checkbox = item.querySelector('.hs-book-select');
+                if (checkbox && checkbox.checked) {
+                    item.classList.add('selected');
+                } else {
+                    item.classList.remove('selected');
+                }
+            });
+        }
+
+        function toggleSelectAll(checkbox) {
+            var checkboxes = document.querySelectorAll('.hs-book-select');
+            checkboxes.forEach(function(cb) {
+                cb.checked = checkbox.checked;
+            });
+            updateBulkStatus();
+        }
+
+        function confirmBulkMerge() {
+            var checkboxes = document.querySelectorAll('.hs-book-select:checked');
+            var targetId = document.getElementById('bulk-target-id').value;
+
+            if (!targetId) {
+                alert('Please enter a target book ID');
+                return false;
+            }
+
+            if (checkboxes.length === 0) {
+                alert('Please select at least one book to merge');
+                return false;
+            }
+
+            var bookIds = [];
+            checkboxes.forEach(function(cb) {
+                bookIds.push(cb.value);
+            });
+
+            return confirm('Are you sure you want to merge ' + checkboxes.length + ' book(s) into book ID ' + targetId + '?\n\nThis will:\n- Merge all selected books into the target book\n- Move all ISBNs to the target book\n- Mark the source books as merged\n\nThis action cannot be undone.');
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Add change listeners to all book checkboxes
+            document.querySelectorAll('.hs-book-select').forEach(function(checkbox) {
+                checkbox.addEventListener('change', updateBulkStatus);
+            });
+
+            // Initial status update
+            updateBulkStatus();
+        });
     </script>
     <?php
 }
@@ -184,7 +292,11 @@ function hs_book_merge_tab_recent()
 
     // Display notices
     if (isset($_GET['merged']) && $_GET['merged'] === 'success') {
-        echo '<div class="hs-notice success"><strong>Success!</strong> Books have been merged successfully.</div>';
+        $count = isset($_GET['count']) ? intval($_GET['count']) : 1;
+        $message = $count > 1
+            ? '<strong>Success!</strong> ' . $count . ' books have been merged successfully.'
+            : '<strong>Success!</strong> Books have been merged successfully.';
+        echo '<div class="hs-notice success">' . $message . '</div>';
     } elseif (isset($_GET['error'])) {
         echo '<div class="hs-notice error"><strong>Error:</strong> ' . esc_html(urldecode($_GET['error'])) . '</div>';
     }
@@ -202,6 +314,40 @@ function hs_book_merge_tab_recent()
 
     <h3>Recently Added Books (<?php echo number_format($total_books); ?> total)</h3>
     <p>Showing the most recently added books to help identify duplicates. Use the search tab to find specific books.</p>
+
+    <!-- Bulk Merge Controls -->
+    <div class="hs-bulk-merge-box">
+        <h3>Bulk Merge Books</h3>
+        <p>Select multiple books below and merge them all into a single target book at once.</p>
+
+        <form method="post" id="bulk-merge-form" onsubmit="return confirmBulkMerge();">
+            <?php wp_nonce_field('hs_bulk_merge_books', 'bulk_merge_nonce'); ?>
+            <input type="hidden" name="action" value="bulk_merge_books">
+            <input type="hidden" name="current_tab" value="recent">
+
+            <div class="hs-bulk-controls">
+                <div class="hs-bulk-status" id="bulk-status">0 books selected</div>
+
+                <label>
+                    <input type="checkbox" onchange="toggleSelectAll(this)"> Select/Deselect All
+                </label>
+
+                <label style="display: flex; align-items: center; gap: 5px;">
+                    <strong>Target Book ID:</strong>
+                    <input type="number" name="target_book_id" id="bulk-target-id" required style="width: 120px;" placeholder="Enter ID">
+                </label>
+
+                <label>
+                    <input type="checkbox" name="sync_metadata" value="1" checked>
+                    Sync metadata from target
+                </label>
+
+                <button type="submit" class="button button-primary" id="bulk-merge-btn" disabled>
+                    Merge Selected Books
+                </button>
+            </div>
+        </form>
+    </div>
 
     <?php
     // Get recent books
@@ -255,11 +401,16 @@ function hs_book_merge_tab_recent()
             $thumbnail = get_the_post_thumbnail($book['id'], 'thumbnail', array('class' => 'hs-book-thumbnail'));
             ?>
             <div class="hs-book-item <?php echo $book['is_canonical'] ? 'canonical' : ''; ?>">
-                <?php if ($thumbnail): ?>
-                    <?php echo $thumbnail; ?>
-                <?php endif; ?>
+                <div class="hs-book-checkbox">
+                    <input type="checkbox" class="hs-book-select" name="book_ids[]" value="<?php echo $book['id']; ?>" form="bulk-merge-form">
+                </div>
 
-                <div class="hs-book-details">
+                <div class="hs-book-content">
+                    <?php if ($thumbnail): ?>
+                        <?php echo $thumbnail; ?>
+                    <?php endif; ?>
+
+                    <div class="hs-book-details">
                     <h3>
                         <?php echo esc_html($book['title']); ?>
                         <?php if ($book['is_canonical']): ?>
@@ -390,6 +541,7 @@ function hs_book_merge_tab_recent()
                         </form>
                     </div>
                 </div>
+                </div>
             </div>
         <?php endforeach; ?>
 
@@ -429,7 +581,11 @@ function hs_book_merge_tab_search()
 
     // Display notices
     if (isset($_GET['merged']) && $_GET['merged'] === 'success') {
-        echo '<div class="hs-notice success"><strong>Success!</strong> Books have been merged successfully.</div>';
+        $count = isset($_GET['count']) ? intval($_GET['count']) : 1;
+        $message = $count > 1
+            ? '<strong>Success!</strong> ' . $count . ' books have been merged successfully.'
+            : '<strong>Success!</strong> Books have been merged successfully.';
+        echo '<div class="hs-notice success">' . $message . '</div>';
     } elseif (isset($_GET['error'])) {
         echo '<div class="hs-notice error"><strong>Error:</strong> ' . esc_html(urldecode($_GET['error'])) . '</div>';
     }
@@ -469,6 +625,40 @@ function hs_book_merge_tab_search()
         <?php if (empty($books)): ?>
             <p>No books found matching "<?php echo esc_html($search); ?>".</p>
         <?php else: ?>
+            <!-- Bulk Merge Controls -->
+            <div class="hs-bulk-merge-box">
+                <h3>Bulk Merge Books</h3>
+                <p>Select multiple books below and merge them all into a single target book at once.</p>
+
+                <form method="post" id="bulk-merge-form-search" onsubmit="return confirmBulkMerge();">
+                    <?php wp_nonce_field('hs_bulk_merge_books', 'bulk_merge_nonce'); ?>
+                    <input type="hidden" name="action" value="bulk_merge_books">
+                    <input type="hidden" name="current_tab" value="search">
+
+                    <div class="hs-bulk-controls">
+                        <div class="hs-bulk-status" id="bulk-status">0 books selected</div>
+
+                        <label>
+                            <input type="checkbox" onchange="toggleSelectAll(this)"> Select/Deselect All
+                        </label>
+
+                        <label style="display: flex; align-items: center; gap: 5px;">
+                            <strong>Target Book ID:</strong>
+                            <input type="number" name="target_book_id" id="bulk-target-id" required style="width: 120px;" placeholder="Enter ID">
+                        </label>
+
+                        <label>
+                            <input type="checkbox" name="sync_metadata" value="1" checked>
+                            Sync metadata from target
+                        </label>
+
+                        <button type="submit" class="button button-primary" id="bulk-merge-btn" disabled>
+                            Merge Selected Books
+                        </button>
+                    </div>
+                </form>
+            </div>
+
             <h3>Search Results (<?php echo count($books); ?> books found)</h3>
             <?php foreach ($books as $book): ?>
                 <?php
@@ -477,12 +667,17 @@ function hs_book_merge_tab_search()
                 $thumbnail = get_the_post_thumbnail($book['id'], 'thumbnail', array('class' => 'hs-book-thumbnail'));
                 ?>
                 <div class="hs-book-item <?php echo $book['is_canonical'] ? 'canonical' : ''; ?>">
-                    <?php if ($thumbnail): ?>
-                        <?php echo $thumbnail; ?>
-                    <?php endif; ?>
+                    <div class="hs-book-checkbox">
+                        <input type="checkbox" class="hs-book-select" name="book_ids[]" value="<?php echo $book['id']; ?>" form="bulk-merge-form-search">
+                    </div>
 
-                    <div class="hs-book-details">
-                        <h3>
+                    <div class="hs-book-content">
+                        <?php if ($thumbnail): ?>
+                            <?php echo $thumbnail; ?>
+                        <?php endif; ?>
+
+                        <div class="hs-book-details">
+                            <h3>
                             <?php echo esc_html($book['title']); ?>
                             <?php if ($book['is_canonical']): ?>
                                 <span style="background: #2271b1; color: white; padding: 2px 8px; font-size: 0.8em; border-radius: 3px;">CANONICAL</span>
@@ -607,6 +802,7 @@ function hs_book_merge_tab_search()
                                 </p>
                             </form>
                         </div>
+                    </div>
                     </div>
                 </div>
             <?php endforeach; ?>
@@ -846,6 +1042,58 @@ function hs_book_merge_handle_post()
             hs_remove_isbn($isbn);
 
             wp_redirect(admin_url('edit.php?post_type=book&page=hs-book-merge&tab=isbn&book_id=' . $book_id));
+            exit;
+
+        case 'bulk_merge_books':
+            if (!isset($_POST['bulk_merge_nonce']) || !wp_verify_nonce($_POST['bulk_merge_nonce'], 'hs_bulk_merge_books')) {
+                wp_die('Invalid nonce');
+            }
+
+            $target_book_id = intval($_POST['target_book_id']);
+            $book_ids = isset($_POST['book_ids']) ? array_map('intval', $_POST['book_ids']) : array();
+            $sync_metadata = isset($_POST['sync_metadata']) && $_POST['sync_metadata'] === '1';
+            $redirect_tab = isset($_POST['current_tab']) ? sanitize_text_field($_POST['current_tab']) : 'recent';
+
+            // Validate we have books to merge
+            if (empty($book_ids)) {
+                wp_redirect(admin_url('edit.php?post_type=book&page=hs-book-merge&tab=' . $redirect_tab . '&error=' . urlencode('No books selected')));
+                exit;
+            }
+
+            if (!$target_book_id) {
+                wp_redirect(admin_url('edit.php?post_type=book&page=hs-book-merge&tab=' . $redirect_tab . '&error=' . urlencode('No target book specified')));
+                exit;
+            }
+
+            // Remove target book from the list if it was selected
+            $book_ids = array_diff($book_ids, array($target_book_id));
+
+            if (empty($book_ids)) {
+                wp_redirect(admin_url('edit.php?post_type=book&page=hs-book-merge&tab=' . $redirect_tab . '&error=' . urlencode('No books to merge (target cannot merge with itself)')));
+                exit;
+            }
+
+            // Merge each book into the target
+            $errors = array();
+            $success_count = 0;
+
+            foreach ($book_ids as $from_book_id) {
+                $result = hs_merge_books($from_book_id, $target_book_id, $sync_metadata, 'Bulk merge operation');
+
+                if (is_wp_error($result)) {
+                    $errors[] = 'Book ' . $from_book_id . ': ' . $result->get_error_message();
+                } else {
+                    $success_count++;
+                }
+            }
+
+            // Redirect with results
+            if (!empty($errors)) {
+                $error_msg = 'Merged ' . $success_count . ' book(s). Errors: ' . implode('; ', $errors);
+                wp_redirect(admin_url('edit.php?post_type=book&page=hs-book-merge&tab=' . $redirect_tab . '&error=' . urlencode($error_msg)));
+            } else {
+                wp_redirect(admin_url('edit.php?post_type=book&page=hs-book-merge&tab=' . $redirect_tab . '&merged=success&count=' . $success_count));
+            }
             exit;
     }
 }
