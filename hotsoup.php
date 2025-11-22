@@ -73,6 +73,7 @@ require_once plugin_dir_path(__FILE__) . 'includes/gid.php';
 require_once plugin_dir_path(__FILE__) . 'includes/book_merge.php';
 require_once plugin_dir_path(__FILE__) . 'includes/admin/book_merge_manager.php';
 require_once plugin_dir_path(__FILE__) . 'includes/user_isbn_selector.php';
+require_once plugin_dir_path(__FILE__) . 'includes/search_filters.php';
 require_once plugin_dir_path(__FILE__) . 'includes/notes.php';
 require_once plugin_dir_path(__FILE__) . 'includes/shortcodes/note_form.php';
 require_once plugin_dir_path(__FILE__) . 'includes/shortcodes/notes_modal.php';

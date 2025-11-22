@@ -543,10 +543,16 @@ function hs_set_user_book_isbn($user_id, $book_id, $isbn)
 {
     global $wpdb;
 
-    // Verify the ISBN exists for this book
+    // Get the book's GID
+    $book_gid = hs_get_gid($book_id);
+    if (!$book_gid) {
+        $book_gid = hs_get_or_create_gid($book_id);
+    }
+
+    // Verify the ISBN exists in the same GID group
     $isbn_record = $wpdb->get_row($wpdb->prepare(
-        "SELECT * FROM {$wpdb->prefix}hs_book_isbns WHERE post_id = %d AND isbn = %s",
-        $book_id,
+        "SELECT * FROM {$wpdb->prefix}hs_book_isbns WHERE gid = %d AND isbn = %s",
+        $book_gid,
         sanitize_text_field($isbn)
     ));
 
@@ -656,8 +662,21 @@ function hs_get_book_for_user($book_id, $user_id)
         return null;
     }
 
-    // Get all available ISBNs
-    $available_isbns = hs_get_book_isbns($book_id);
+    // Get the book's GID to fetch all ISBNs in the group
+    $gid = hs_get_gid($book_id);
+    if (!$gid) {
+        $gid = hs_get_or_create_gid($book_id);
+    }
+
+    // Get all available ISBNs for this GID (includes merged books)
+    global $wpdb;
+    $available_isbns = $wpdb->get_results($wpdb->prepare(
+        "SELECT isbn, edition, publication_year, is_primary, post_id
+        FROM {$wpdb->prefix}hs_book_isbns
+        WHERE gid = %d
+        ORDER BY is_primary DESC, created_at ASC",
+        $gid
+    ));
 
     // Get user's preferred ISBN
     $user_isbn = hs_get_user_book_isbn($user_id, $book_id);

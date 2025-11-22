@@ -33,11 +33,28 @@ function hs_display_isbn_selector($book_id = null)
     ?>
     <div class="hs-isbn-selector" data-book-id="<?php echo esc_attr($book_id); ?>">
         <div class="hs-isbn-selector-header">
-            <h3>Select Your Edition</h3>
-            <p class="hs-isbn-description">This book has multiple editions. Select which one you own for accurate page counts and details.</p>
+            <h3>
+                Multiple Editions Available
+                <span class="hs-isbn-count">(<?php echo count($book_data['available_isbns']); ?> editions)</span>
+            </h3>
+            <p class="hs-isbn-current">
+                <?php if ($book_data['user_isbn']): ?>
+                    <strong>Your edition:</strong> <?php echo esc_html($book_data['active_isbn']); ?>
+                    <?php if ($book_data['active_edition']): ?>
+                        - <?php echo esc_html($book_data['active_edition']); ?>
+                    <?php endif; ?>
+                    (<?php echo number_format($book_data['page_count']); ?> pages)
+                <?php else: ?>
+                    <strong>Default edition selected.</strong> Click below to choose your specific edition.
+                <?php endif; ?>
+            </p>
+            <button type="button" class="hs-toggle-editions button">
+                <span class="hs-toggle-text-show">Choose Your Edition</span>
+                <span class="hs-toggle-text-hide" style="display: none;">Hide Editions</span>
+            </button>
         </div>
 
-        <div class="hs-isbn-options">
+        <div class="hs-isbn-options" style="display: none;">
             <?php foreach ($book_data['available_isbns'] as $isbn_record): ?>
                 <?php
                 $is_selected = ($isbn_record->isbn === $book_data['user_isbn']);
@@ -103,16 +120,30 @@ function hs_display_isbn_selector($book_id = null)
             font-size: 1.3em;
         }
 
-        .hs-isbn-description {
+        .hs-isbn-count {
             color: #666;
-            margin: 0 0 20px 0;
-            font-size: 0.95em;
+            font-size: 0.85em;
+            font-weight: normal;
+        }
+
+        .hs-isbn-current {
+            color: #333;
+            margin: 10px 0 15px 0;
+            padding: 10px;
+            background: white;
+            border-left: 3px solid #2271b1;
+            border-radius: 4px;
+        }
+
+        .hs-toggle-editions {
+            margin-bottom: 15px;
         }
 
         .hs-isbn-options {
             display: flex;
             flex-direction: column;
             gap: 12px;
+            margin-top: 15px;
             margin-bottom: 15px;
         }
 
@@ -243,10 +274,27 @@ function hs_display_isbn_selector($book_id = null)
             $(document).ready(function() {
                 const $selector = $('.hs-isbn-selector');
                 const $options = $selector.find('.hs-isbn-option');
+                const $optionsContainer = $selector.find('.hs-isbn-options');
+                const $toggleBtn = $selector.find('.hs-toggle-editions');
+                const $toggleTextShow = $toggleBtn.find('.hs-toggle-text-show');
+                const $toggleTextHide = $toggleBtn.find('.hs-toggle-text-hide');
                 const $saveBtn = $selector.find('.hs-isbn-save-btn');
                 const $status = $selector.find('.hs-isbn-status');
                 const bookId = $selector.data('book-id');
                 let originalSelection = $selector.find('input[type="radio"]:checked').val();
+
+                // Handle toggle button
+                $toggleBtn.on('click', function() {
+                    if ($optionsContainer.is(':visible')) {
+                        $optionsContainer.slideUp(200);
+                        $toggleTextShow.show();
+                        $toggleTextHide.hide();
+                    } else {
+                        $optionsContainer.slideDown(200);
+                        $toggleTextShow.hide();
+                        $toggleTextHide.show();
+                    }
+                });
 
                 // Handle option click
                 $options.on('click', function() {
