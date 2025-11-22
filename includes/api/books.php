@@ -6,26 +6,8 @@
 // Register REST API routes
 add_action('rest_api_init', function() {
 
-    // Search books
-    register_rest_route('gread/v1', '/books/search', array(
-        'methods' => 'GET',
-        'callback' => 'gread_api_search_books',
-        'permission_callback' => 'is_user_logged_in',
-        'args' => array(
-            'q' => array(
-                'required' => true,
-                'type' => 'string',
-                'sanitize_callback' => 'sanitize_text_field',
-                'description' => 'Search query'
-            ),
-            'limit' => array(
-                'required' => false,
-                'type' => 'integer',
-                'default' => 20,
-                'sanitize_callback' => 'absint'
-            )
-        )
-    ));
+    // Note: /books/search endpoint already exists in includes/rest.php
+    // Do not duplicate it here to avoid conflicts
 
     // Get book details including ISBNs
     register_rest_route('gread/v1', '/books/(?P<id>\d+)', array(
@@ -207,23 +189,6 @@ add_action('rest_api_init', function() {
 function gread_can_manage_books()
 {
     return current_user_can('edit_posts') || current_user_can('manage_options');
-}
-
-/**
- * Search books API endpoint
- */
-function gread_api_search_books($request)
-{
-    $query = $request->get_param('q');
-    $limit = $request->get_param('limit');
-
-    $books = hs_search_books($query, $limit);
-
-    return rest_ensure_response(array(
-        'success' => true,
-        'count' => count($books),
-        'books' => $books
-    ));
 }
 
 /**
