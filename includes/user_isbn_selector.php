@@ -417,6 +417,11 @@ function hs_auto_add_isbn_selector($content)
 
     $book_id = get_the_ID();
     $user_id = get_current_user_id();
+
+    // Ensure book's ISBN is in the database table
+    $gid = hs_get_or_create_gid($book_id);
+    hs_ensure_isbn_in_table($book_id, $gid);
+
     $book_data = hs_get_book_for_user($book_id, $user_id);
 
     // Only show if book has multiple editions

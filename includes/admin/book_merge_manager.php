@@ -25,11 +25,6 @@ function hs_book_merge_admin_menu()
 
 function hs_book_merge_admin_page()
 {
-    // Handle form submissions
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        hs_book_merge_handle_post();
-    }
-
     // Get current tab
     $tab = isset($_GET['tab']) ? $_GET['tab'] : 'recent';
 
@@ -226,6 +221,17 @@ function hs_book_merge_tab_recent()
         while ($query->have_posts()) {
             $query->the_post();
             $post_id = get_the_ID();
+
+            // Skip merged books (not canonical)
+            $gid_entry = $wpdb->get_row($wpdb->prepare(
+                "SELECT is_canonical FROM {$wpdb->prefix}hs_gid WHERE post_id = %d",
+                $post_id
+            ));
+
+            // If book has a GID entry and is not canonical (is_canonical = 0), skip it
+            if ($gid_entry && $gid_entry->is_canonical == 0) {
+                continue;
+            }
 
             $books[] = array(
                 'id' => $post_id,
@@ -747,6 +753,22 @@ function hs_book_merge_tab_duplicate_reports()
         </table>
     <?php endif; ?>
     <?php
+}
+
+// Handle form submissions on admin_init (before any output)
+add_action('admin_init', 'hs_book_merge_check_post');
+
+function hs_book_merge_check_post()
+{
+    // Only run on our admin page
+    if (!isset($_GET['page']) || $_GET['page'] !== 'hs-book-merge') {
+        return;
+    }
+
+    // Only if POST request
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        hs_book_merge_handle_post();
+    }
 }
 
 function hs_book_merge_handle_post()

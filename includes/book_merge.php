@@ -221,6 +221,18 @@ function hs_search_books($search_term, $limit = 20)
             $query->the_post();
             $post_id = get_the_ID();
 
+            // Skip merged books (not canonical)
+            $is_canonical = hs_is_canonical_book($post_id);
+            $gid_entry = $wpdb->get_row($wpdb->prepare(
+                "SELECT is_canonical FROM {$wpdb->prefix}hs_gid WHERE post_id = %d",
+                $post_id
+            ));
+
+            // If book has a GID entry and is not canonical (is_canonical = 0), skip it
+            if ($gid_entry && $gid_entry->is_canonical == 0) {
+                continue;
+            }
+
             $results[] = array(
                 'id' => $post_id,
                 'title' => get_the_title(),
@@ -228,15 +240,15 @@ function hs_search_books($search_term, $limit = 20)
                 'isbn' => get_field('book_isbn', $post_id),
                 'page_count' => get_field('nop', $post_id),
                 'gid' => hs_get_gid($post_id),
-                'is_canonical' => hs_is_canonical_book($post_id)
+                'is_canonical' => $is_canonical
             );
         }
         wp_reset_postdata();
     }
 
-    // Also search by ISBN
+    // Also search by ISBN - return canonical book for each GID
     $isbn_results = $wpdb->get_results($wpdb->prepare(
-        "SELECT DISTINCT bi.post_id, bi.isbn, bi.gid
+        "SELECT DISTINCT bi.isbn, bi.gid
         FROM {$wpdb->prefix}hs_book_isbns bi
         WHERE bi.isbn LIKE %s
         LIMIT %d",
@@ -245,18 +257,25 @@ function hs_search_books($search_term, $limit = 20)
     ));
 
     foreach ($isbn_results as $isbn_result) {
+        // Get the canonical book for this GID
+        $canonical_post_id = hs_get_canonical_post($isbn_result->gid);
+
+        if (!$canonical_post_id) {
+            continue;
+        }
+
         // Check if we already have this book in results
         $already_added = false;
         foreach ($results as $result) {
-            if ($result['id'] == $isbn_result->post_id) {
+            if ($result['id'] == $canonical_post_id) {
                 $already_added = true;
                 break;
             }
         }
 
         if (!$already_added) {
-            $post = get_post($isbn_result->post_id);
-            if ($post) {
+            $post = get_post($canonical_post_id);
+            if ($post && $post->post_status === 'publish') {
                 $results[] = array(
                     'id' => $post->ID,
                     'title' => $post->post_title,
@@ -264,7 +283,7 @@ function hs_search_books($search_term, $limit = 20)
                     'isbn' => $isbn_result->isbn,
                     'page_count' => get_field('nop', $post->ID),
                     'gid' => $isbn_result->gid,
-                    'is_canonical' => hs_is_canonical_book($post->ID)
+                    'is_canonical' => true
                 );
             }
         }
@@ -473,20 +492,27 @@ function hs_ensure_isbn_in_table($book_id, $gid)
     }
 
     // Check if this ISBN already exists globally
-    $isbn_exists = $wpdb->get_var($wpdb->prepare(
-        "SELECT id FROM {$wpdb->prefix}hs_book_isbns WHERE isbn = %s",
+    $existing_isbn = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM {$wpdb->prefix}hs_book_isbns WHERE isbn = %s",
         sanitize_text_field($isbn)
     ));
 
-    if ($isbn_exists) {
-        // ISBN exists but for a different book - this is a duplicate situation
-        // We'll still add it for this book but not as primary
-        $is_primary = 0;
-    } else {
-        $is_primary = 1;
+    if ($existing_isbn) {
+        // ISBN already exists in the system
+        // Just update it to point to this book's GID if needed
+        if ($existing_isbn->gid != $gid) {
+            $wpdb->update(
+                $wpdb->prefix . 'hs_book_isbns',
+                array('gid' => intval($gid)),
+                array('isbn' => sanitize_text_field($isbn)),
+                array('%d'),
+                array('%s')
+            );
+        }
+        return true;
     }
 
-    // Add the ISBN to the table
+    // ISBN doesn't exist yet, insert it
     $year = get_field('publication_year', $book_id);
     $result = $wpdb->insert(
         $wpdb->prefix . 'hs_book_isbns',
@@ -496,7 +522,7 @@ function hs_ensure_isbn_in_table($book_id, $gid)
             'isbn' => sanitize_text_field($isbn),
             'edition' => '',
             'publication_year' => $year ? intval($year) : null,
-            'is_primary' => $is_primary,
+            'is_primary' => 1,
             'created_at' => current_time('mysql')
         ),
         array('%d', '%d', '%s', '%s', '%d', '%d', '%s')
